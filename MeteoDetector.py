@@ -1,11 +1,16 @@
 import io as systemIo
+import os
 import asyncio
+import imageio
 import json
 import requests
 import base64
 import numpy as np
 import matplotlib.pyplot as plt
 import smtplib
+from os import listdir
+from os.path import isfile, join
+from datetime import datetime
 from os.path import basename
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
@@ -51,7 +56,7 @@ async def filter_image_color(floatimg):
     plt.plot(1450, 1400, "ro")
     f.canvas.draw()
     im = Image.frombytes('RGB', f.canvas.get_width_height(),
-                         f.canvas.tostring_rgb())
+                         f.canvas.tostring_argb())
     return np.array(im)
 
 
@@ -88,34 +93,37 @@ async def calculateDistance(imageIndex, img):
     return dist
 
 
-async def send_mail(send_to, text, files=None,
-                    server="127.0.0.1"):
-    assert isinstance(send_to, list)
-    send_from = ""
+async def send_mail(text):
+    print("entering send_mail")
+    send_from = "sender"
+    password = "gmailkey"
+    recipients = ["recipient1", "recipient2"]
     msg = MIMEMultipart()
     msg['From'] = send_from
-    msg['To'] = COMMASPACE.join(send_to)
+    msg['To'] = ', '.join(recipients)
     msg['Date'] = formatdate(localtime=True)
     msg['Subject'] = "Meteo Alarm"
-
     msg.attach(MIMEText(text))
-
-    for f in files or []:
-        with open(f, "rb") as fil:
-            part = MIMEApplication(
-                fil.read(),
-                Name=basename(f)
-            )
-        # After the file is closed
-        part['Content-Disposition'] = 'attachment; filename="%s"' % basename(f)
-        msg.attach(part)
-
-    smtp = smtplib.SMTP(server)
-    smtp.sendmail(send_from, send_to, msg.as_string())
-    smtp.close()
+    filenames = [f for f in listdir(
+        os.getcwd()) if isfile(join(os.getcwd(), f))]
+    filenames = list(
+        filter(lambda finalElab: finalElab.startswith("finalElaboration"), filenames))
+    images = []
+    for filename in filenames:
+        images.append(imageio.imread(filename))
+        imageio.mimsave('Meteo.gif', images)
+    with open("Meteo.gif", 'rb') as file:
+        # Attach the file with filename to the email
+        msg.attach(MIMEApplication(file.read(), Name="Meteo.gif"))
+        s = smtplib.SMTP('smtp.gmail.com', 587)
+        s.starttls()
+        s.login(send_from, password)
+        s.sendmail(send_from, recipients, msg.as_string())
+        s.quit()
 
 
 async def main():
+    print("Last run:"+datetime.now().strftime('%d/%m/%Y %H:%M:%S'))
     r = requests.get(url=URL)
     imageIndex = 0
     response = json.loads(json.dumps(r.json()),
@@ -130,13 +138,9 @@ async def main():
             if (len(distances) != 0 and distances[-1] > d) or len(distances) == 0:
                 orderedElement += 1
             distances.append(d)
-    print(orderedElement)
-    print(distances)
     if orderedElement > len(distances)/2:
         print("invio mail")
-        # await send_mail()
+        await send_mail("ATTENZIONE: maltempo in avvicinamento")
 
 if __name__ == '__main__':
-    if __debug__:
-        asyncio.run(main())
-
+    asyncio.run(main())
